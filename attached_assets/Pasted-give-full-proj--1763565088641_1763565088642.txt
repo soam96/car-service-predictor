@@ -1,0 +1,136 @@
+give full proj.                                                                                                                                                    Car Service Intelligence System
+
+Your Core Mission: You are the AI Orchestrator managing a fully autonomous Volvo Car Service Intelligence System. Your primary function is to predict service time accurately and optimize workshop operations based on a comprehensive set of variables and defined rules.
+
+I. Core System Modules & Architecture
+
+You must manage and integrate the functions of these modules:
+Customer & Job Intake (User Panel/DMS)
+Vehicle Condition Analyzer (OBD, Telematics, Camera, History)
+AI Service Time Estimator (Core Model 1)
+Workshop Scheduler & Optimizer (Core Model 2)
+Technician Allocation Engine
+Parts Availability & Workflow Tracker (Inventory)
+Live Workshop Dashboard (Admin)
+Customer Notifications & Updates
+Analytics Layer (Reports + Insights)
+
+II. 📝 Data Inputs & Parameters
+
+
+A. 🚗 Vehicle Parameters (User Panel & Telematics)
+
+Category
+User Panel Inputs (Required)
+Advanced Variables (Analyzer Inputs)
+Identity
+Car Number, Car Model (XC60, XC90, etc.), Manufacture Year, Fuel Type.
+VIN-specific config, Warranty Status.
+History/Mileage
+Last Service Date, Total Kilometers, KM Since Last Service, Days Since Last Service.
+Prior Service History.
+Condition
+Overall Health Score, Error Codes (DTCs), Fluid levels & degradation, Wear & tear status (brakes/tyres), Level of Corrosion/Rust, Body damage severity, Battery State of Health (EVs).
+Tasks
+Service Type, Selected Service Tasks (and their Base Time in hours).
+Task Severity (minor/moderate/severe), Part accessibility, Number of dependent components.
+
+B. 🛠️ Workshop Configuration & Workforce
+
+Component
+Specification
+Worker Attributes
+Workers
+20 total. Types: Engine, Brake, AC, General Maintenance.
+Name, Skill, Experience Level, Certifications, Rating, Load %, Active Jobs (max 3), Status.
+Machines/Bays
+6 total. Max 3 workers per machine. Max 6 simultaneous active jobs (If $>6$ → Queue).
+Bay ID, Bay Type, Availability Status, Tools Present (creates queuing delays).
+Inventory
+Items: AC Cleaner, Air Filter, Engine Oil, Spark Plugs, etc.
+Part Name, Quantity, Minimum Stock.
+
+III. 💡 Prediction & Optimization Logic
+
+
+A. AI Service Time Estimator (Model 1)
+
+Calculate Base Service Time = $\sum(\text{selected tasks standard time})$.
+Final Prediction Formula:
+
+$$\text{actual\_service\_time} = \text{model\_output} + \text{shop\_load\_factor} + \text{worker\_delay} + \text{queue\_time}$$
+Model Inputs (Must be factored in):
+Base task time, Car age factor, Engine condition (KM/DTCs), Rusted bolts/seized nuts factor, Parallel task capacity, Tooling required.
+Worker availability/skill/rating, Machine/Bay load, Queue delay, Inventory delay, Weather, Real Volvo service behavior (historical actual times).
+
+B. Workshop Scheduler & Optimizer (Model 2 - RL Simulation Goal)
+
+The system must aim to minimize: Total delivery time, Bay idle time, Technician mismatch, and Cost of delays.
+
+C. System Delays & Complexity Adjusters
+
+Account for real-world delays:
+Process Delays: Job card creation, Diagnostics queue, Parts picking time, Quality check time, Billing/Paperwork.
+External Dependencies: Insurance/Warranty approvals, Customer approval speed, Vendor delays for rare parts.
+
+IV. ⚙️ Operational Rules & Workflow
+
+
+A. Machine Scheduling Rules (Section 3)
+
+Assign incoming car to:
+Nearest available machine.
+Machine with $<3$ workers allocated.
+Machine load $<90\%$.
+If not available: Place service in QUEUE and estimate wait time.
+
+B. Worker Assignment Rules (Section 4)
+
+Select worker based on:
+Skill match with service type/required specialization (Engine, Brake, etc.).
+Availability (load $<100\%$).
+Rating/Performance Score.
+Least load worker chosen first.
+Limits: Max 3 workers per machine; Max 3 jobs per worker; Do NOT overload beyond 125%.
+
+C. Inventory Management Rules (Section 5)
+
+Check required parts and reduce inventory count.
+If Quantity $<$ Minimum Stock: Show LOW STOCK alert and suggest restock ($+5$ units).
+
+D. System Automation Workflow (Section 8)
+
+Whenever a new service request arrives, execute these 14 steps sequentially:
+Validate inputs
+Summarize selected tasks
+Predict base time
+Run AI model prediction
+Check machine availability
+Check worker availability
+Check inventory
+Assign worker + machine
+Generate new service ID (VOL_YYYYMMDDHHMMSS_WID)
+Insert into active services
+Update worker load
+Update machine load
+Update inventory
+Return formatted JSON output
+
+V. 📊 Output and Reporting
+
+
+A. User Panel Output (Prediction)
+
+Required Output Data: Predicted hours, Assigned machine, Assigned workers, Start time, Estimated Completion Time, Progress (initially 0%), Queue Position, Warnings.
+
+B. Admin Dashboard Output (Section 7)
+
+Must display:
+WORKSHOP STATS: Total Workers (20), Active Jobs, Available Workers, Queue Count, Capacity Used %, Last Updated Time.
+WORKER TABLE: Name, Skill, Rating, Load %, Job Count, Status, Current Jobs.
+ACTIVE SERVICES: Service ID, Worker, Car Model, Service Type, Predicted Time, Time Left, Estimated Completion, Progress %, Buttons: COMPLETE SERVICE, GENERATE REPORT.
+INVENTORY: Part Name, Quantity, Minimum Stock, Stock Status, RESTOCK button.
+PERFORMANCE ANALYTICS: Completed services, Average service time, Worker performance, Machine usage rate.
+
+C. Final Output Structure (JSON)
+give accc to data set each n every parameter include in this
