@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Package, Plus, AlertTriangle } from "lucide-react";
+import { Package, Plus, AlertTriangle, Trash2, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Inventory } from "@shared/schema";
@@ -35,6 +35,45 @@ export default function InventoryPage() {
         description: error.message,
         variant: "destructive",
       });
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (payload: { partName: string; quantity: number; minimumStock: number }) => {
+      return await apiRequest('POST', '/api/inventory', payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/inventory'] });
+      toast({ title: 'Item Added', description: 'Inventory item created.' });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Create Failed', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, quantity, minimumStock, partName }: { id: string; quantity?: number; minimumStock?: number; partName?: string }) => {
+      return await apiRequest('PUT', `/api/inventory/${id}`, { quantity, minimumStock, partName });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/inventory'] });
+      toast({ title: 'Item Updated', description: 'Inventory item updated.' });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Update Failed', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return await apiRequest('DELETE', `/api/inventory/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/inventory'] });
+      toast({ title: 'Item Deleted', description: 'Inventory item removed.' });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Delete Failed', description: error.message, variant: 'destructive' });
     },
   });
 
@@ -75,6 +114,37 @@ export default function InventoryPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="flex gap-2 items-end mb-6">
+            <div className="flex-1 grid grid-cols-3 gap-3">
+              <div>
+                <div className="text-xs text-muted-foreground mb-1">Part Name</div>
+                <input className="w-full border rounded-md h-9 px-2" id="new-part-name" placeholder="e.g., Brake Pads" />
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground mb-1">Quantity</div>
+                <input className="w-full border rounded-md h-9 px-2" id="new-quantity" type="number" defaultValue={0} />
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground mb-1">Minimum Stock</div>
+                <input className="w-full border rounded-md h-9 px-2" id="new-min" type="number" defaultValue={5} />
+              </div>
+            </div>
+            <Button
+              onClick={() => {
+                const nameEl = document.getElementById('new-part-name') as HTMLInputElement;
+                const qtyEl = document.getElementById('new-quantity') as HTMLInputElement;
+                const minEl = document.getElementById('new-min') as HTMLInputElement;
+                const partName = nameEl?.value?.trim();
+                const quantity = parseInt(qtyEl?.value || '0');
+                const minimumStock = parseInt(minEl?.value || '5');
+                if (!partName) return toast({ title: 'Part name required', variant: 'destructive' });
+                createMutation.mutate({ partName, quantity, minimumStock });
+              }}
+              disabled={createMutation.isPending}
+            >
+              Add Item
+            </Button>
+          </div>
           {isLoading ? (
             <div className="space-y-4">
               {[1, 2, 3, 4, 5].map((i) => (
@@ -113,12 +183,20 @@ export default function InventoryPage() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <span className={`text-lg font-semibold ${item.quantity < item.minimumStock ? 'text-amber-600' : ''}`} data-testid={`text-quantity-${item.id}`}>
-                            {item.quantity}
-                          </span>
+                          <input
+                            className="w-24 border rounded-md h-8 px-2"
+                            type="number"
+                            defaultValue={item.quantity}
+                            onBlur={(e) => updateMutation.mutate({ id: item.id, quantity: parseInt(e.target.value) })}
+                          />
                         </TableCell>
                         <TableCell className="text-muted-foreground" data-testid={`text-min-stock-${item.id}`}>
-                          {item.minimumStock}
+                          <input
+                            className="w-24 border rounded-md h-8 px-2"
+                            type="number"
+                            defaultValue={item.minimumStock}
+                            onBlur={(e) => updateMutation.mutate({ id: item.id, minimumStock: parseInt(e.target.value) })}
+                          />
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className={status.color} data-testid={`badge-status-${item.id}`}>
@@ -135,6 +213,15 @@ export default function InventoryPage() {
                           >
                             <Plus className="h-4 w-4 mr-1" />
                             Restock +5
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-red-600"
+                            onClick={() => deleteMutation.mutate(item.id)}
+                          >
+                            <Trash2 className="h-4 w-4 mr-1" />
+                            Delete
                           </Button>
                         </TableCell>
                       </TableRow>

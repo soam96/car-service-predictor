@@ -1,0 +1,6 @@
+age,kmSinceLastService,healthScore,dtcCount,rustLevel,bodyDamage,batterySOH,fluidDegradation,wearTearScore,priorServiceCount,telematicsScore,package,approvalSpeed,appointmentType,peakHours,weather,shopLoad,targetHours
+3,6000,85,1,1,0,100,20,30,2,88,1,1,0,0,0,0.2,3.5
+8,12000,70,3,2,1,95,40,60,1,70,2,2,1,1,1,0.6,6.2
+12,8000,60,2,3,2,90,35,70,0,55,0,2,1,0,1,0.7,7.8
+5,4000,92,0,0,0,100,10,20,3,95,0,0,0,0,0,0.1,2.8
+2,5000,88,1,0,1,98,15,25,1,90,1,1,0,0,0,0.3,3.2

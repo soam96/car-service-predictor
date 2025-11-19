@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -7,11 +7,52 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { Star } from "lucide-react";
 import type { Worker } from "@shared/schema";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { apiRequest } from "@/lib/queryClient";
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { queryClient } from "@/lib/queryClient";
 
 export default function Workers() {
   const { data: workers, isLoading } = useQuery<Worker[]>({
     queryKey: ['/api/workers'],
     refetchInterval: 5000,
+    staleTime: 10000,
+    refetchOnWindowFocus: false,
+  });
+
+  const [newName, setNewName] = useState("");
+  const [newSkill, setNewSkill] = useState("General");
+  const [newExp, setNewExp] = useState<number>(3);
+  const [newRating, setNewRating] = useState<number>(4.0);
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest<Worker>('POST', '/api/workers', {
+        name: newName.trim(),
+        skill: newSkill,
+        experienceLevel: newExp,
+        rating: newRating,
+      });
+    },
+    onSuccess: () => {
+      setNewName("");
+      setNewSkill("General");
+      setNewExp(3);
+      setNewRating(4.0);
+      queryClient.invalidateQueries({ queryKey: ['/api/workers'] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return await apiRequest<{ success: boolean }>('DELETE', `/api/workers/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/workers'] });
+    },
   });
 
   const getStatusColor = (status: string) => {
@@ -60,6 +101,54 @@ export default function Workers() {
         </p>
       </div>
 
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+      <Card>
+        <CardHeader>
+          <CardTitle>Add Worker</CardTitle>
+          <CardDescription>Create a new technician</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Name</div>
+              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g., Rahul Kumar" />
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Skill</div>
+              <Select onValueChange={setNewSkill} defaultValue={newSkill}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select skill" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="General">General</SelectItem>
+                  <SelectItem value="Engine">Engine</SelectItem>
+                  <SelectItem value="Brake">Brake</SelectItem>
+                  <SelectItem value="AC">AC</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Experience (years)</div>
+              <Input type="number" value={newExp} onChange={(e) => setNewExp(parseInt(e.target.value))} />
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Rating</div>
+              <Input type="number" step="0.1" min="1" max="5" value={newRating} onChange={(e) => setNewRating(parseFloat(e.target.value))} />
+            </div>
+          </div>
+          <div className="mt-4">
+            <Button 
+              onClick={() => createMutation.mutate()} 
+              disabled={!newName.trim() || createMutation.isPending}
+              data-testid="button-add-worker"
+            >
+              Add Worker
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+      </motion.div>
+
       <Card>
         <CardHeader>
           <CardTitle>Active Workers</CardTitle>
@@ -93,11 +182,20 @@ export default function Workers() {
                     <TableHead>Jobs</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Current Jobs</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  <AnimatePresence>
                   {workers?.map((worker) => (
-                    <TableRow key={worker.id} data-testid={`row-worker-${worker.id}`}>
+                    <motion.tr 
+                      key={worker.id} 
+                      data-testid={`row-worker-${worker.id}`} 
+                      initial={{ opacity: 0, y: 6 }} 
+                      animate={{ opacity: 1, y: 0 }} 
+                      exit={{ opacity: 0, y: -6 }} 
+                      transition={{ duration: 0.2 }}
+                    >
                       <TableCell>
                         <div className="flex items-center gap-3">
                           <Avatar>
@@ -151,8 +249,20 @@ export default function Workers() {
                           )}
                         </div>
                       </TableCell>
-                    </TableRow>
+                      <TableCell>
+                        <Button 
+                          variant="destructive" 
+                          size="sm" 
+                          onClick={() => deleteMutation.mutate(worker.id)} 
+                          disabled={worker.status !== 'Available' || worker.activeJobs.length > 0}
+                          data-testid={`button-delete-${worker.id}`}
+                        >
+                          Remove
+                        </Button>
+                      </TableCell>
+                    </motion.tr>
                   ))}
+                  </AnimatePresence>
                 </TableBody>
               </Table>
             </div>

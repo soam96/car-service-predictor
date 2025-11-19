@@ -4,6 +4,36 @@ import { storage } from "./storage";
 import { serviceRequestSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  function applyBusinessHours(start: Date, hours: number): Date {
+    const WORK_START = 10; // 10:00
+    const WORK_END = 19;   // 19:00
+    const minutesToAdd = Math.round(hours * 60);
+    let current = new Date(start);
+    // align to business hours window
+    const sHour = current.getHours() + current.getMinutes()/60;
+    if (sHour < WORK_START) {
+      current.setHours(WORK_START, 0, 0, 0);
+    } else if (sHour >= WORK_END) {
+      current.setDate(current.getDate() + 1);
+      current.setHours(WORK_START, 0, 0, 0);
+    }
+    let remaining = minutesToAdd;
+    while (remaining > 0) {
+      const endToday = new Date(current);
+      endToday.setHours(WORK_END, 0, 0, 0);
+      const minutesAvailable = Math.max(0, Math.round((endToday.getTime() - current.getTime()) / (1000*60)));
+      if (remaining <= minutesAvailable) {
+        current = new Date(current.getTime() + remaining * 60 * 1000);
+        remaining = 0;
+      } else {
+        // consume today's window and move to next day
+        remaining -= minutesAvailable;
+        current.setDate(current.getDate() + 1);
+        current.setHours(WORK_START, 0, 0, 0);
+      }
+    }
+    return current;
+  }
   
   // GET /api/service-tasks - Get all available service tasks
   app.get("/api/service-tasks", async (_req, res) => {
@@ -25,6 +55,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/workers - Create a new worker
+  app.post("/api/workers", async (req, res) => {
+    try {
+      const { name, skill, experienceLevel, rating, certifications } = req.body || {};
+      if (!name || !skill || typeof experienceLevel !== 'number') {
+        return res.status(400).json({ error: "name, skill, experienceLevel are required" });
+      }
+      const worker = await storage.createWorker({
+        name,
+        skill,
+        experienceLevel,
+        rating: typeof rating === 'number' ? rating : 4.0,
+        certifications: Array.isArray(certifications) ? certifications : [],
+        loadPercent: 0,
+        activeJobs: [],
+        status: 'Available',
+      } as any);
+      res.json(worker);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create worker" });
+    }
+  });
+
+  // DELETE /api/workers/:id - Delete a worker (only if no active jobs)
+  app.delete("/api/workers/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const worker = await storage.getWorker(id);
+      if (!worker) {
+        return res.status(404).json({ error: "Worker not found" });
+      }
+      if (worker.activeJobs.length > 0 || worker.status !== 'Available') {
+        return res.status(400).json({ error: "Cannot delete a busy worker" });
+      }
+      const ok = await storage.deleteWorker(id);
+      res.json({ success: ok });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete worker" });
+    }
+  });
+
   // GET /api/active-services - Get all active services
   app.get("/api/active-services", async (_req, res) => {
     try {
@@ -42,6 +113,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(inventory);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch inventory" });
+    }
+  });
+
+  // POST /api/inventory - Create inventory item
+  app.post("/api/inventory", async (req, res) => {
+    try {
+      const { partName, quantity, minimumStock } = req.body || {};
+      if (!partName || typeof partName !== 'string') {
+        return res.status(400).json({ error: "partName is required" });
+      }
+      const created = await storage.createInventoryItem({ partName, quantity, minimumStock });
+      res.json(created);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create inventory item" });
+    }
+  });
+
+  // PUT /api/inventory/:id - Update inventory item
+  app.put("/api/inventory/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body || {};
+      const updated = await storage.updateInventoryItem(id, updates);
+      if (!updated) return res.status(404).json({ error: "Item not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update inventory item" });
+    }
+  });
+
+  // DELETE /api/inventory/:id - Delete inventory item
+  app.delete("/api/inventory/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const ok = await storage.deleteInventoryItem(id);
+      if (!ok) return res.status(404).json({ error: "Item not found" });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete inventory item" });
     }
   });
 
@@ -186,7 +296,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const carAgeFactor = carAge > 10 ? 0.2 : carAge > 5 ? 0.1 : 0;
 
       // Condition multipliers
-      const healthFactor = (100 - validatedData.healthScore) / 200; // 0 to 0.5
+      const healthFactor = (100 - validatedData.healthScore) / 200;
       
       const rustMultiplier = {
         "None": 0,
@@ -208,17 +318,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Error codes factor
       const errorCodesFactor = validatedData.errorCodes.length * 0.25;
 
+      const batteryFactor = validatedData.fuelType === "Electric" ? (100 - validatedData.batterySOH) / 300 : 0;
+      const fluidsFactor = validatedData.fluidDegradation / 300;
+      const wearTearFactor = validatedData.wearTearScore / 300;
+
+      const packageFactor = {
+        Basic: 0,
+        Standard: 0.05,
+        Premium: 0.12,
+      }[validatedData.servicePackage];
+
+      const approvalFactor = {
+        Fast: 0,
+        Normal: 0.05,
+        Slow: 0.15,
+      }[validatedData.customerApprovalSpeed];
+
       // Shop load factor
       const activeServices = await storage.getActiveServices();
       const shopLoadFactor = activeServices.length >= 6 ? 0.3 : activeServices.length >= 4 ? 0.2 : 0;
+      const appointmentFactor = validatedData.appointmentType === "Walk-in" ? 0.1 : 0;
+      const peakHoursFactor = validatedData.peakHours ? 0.08 : 0;
+      const weatherFactor = {
+        Clear: 0,
+        Rain: 0.05,
+        Extreme: 0.12,
+      }[validatedData.weather];
 
       // Calculate predicted time
-      const conditionAdjustment = baseTime * (carAgeFactor + healthFactor + rustMultiplier + damageMultiplier + kmFactor + errorCodesFactor);
+      const conditionAdjustment = baseTime * (
+        carAgeFactor +
+        healthFactor +
+        rustMultiplier +
+        damageMultiplier +
+        kmFactor +
+        errorCodesFactor +
+        batteryFactor +
+        fluidsFactor +
+        wearTearFactor +
+        packageFactor +
+        approvalFactor +
+        appointmentFactor +
+        peakHoursFactor +
+        weatherFactor
+      );
       const predictedHours = baseTime + conditionAdjustment + shopLoadFactor;
 
       // Step 3: Check inventory
       const warnings: string[] = [];
-      for (const partName of new Set(requiredParts)) {
+      for (const partName of Array.from(new Set(requiredParts))) {
         const item = await storage.getInventoryItem(partName);
         if (item) {
           if (item.quantity === 0) {
@@ -293,7 +441,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const serviceId = `VOL_${dateStr}_${workerId}`;
 
       // Step 8: Calculate estimated completion
-      const estimatedCompletion = new Date(now.getTime() + predictedHours * 60 * 60 * 1000);
+      const estimatedCompletion = applyBusinessHours(now, predictedHours);
 
       // Step 9: Create active service
       const activeService = await storage.createActiveService({
@@ -333,7 +481,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Step 11: Update machine load
       if (!queuePosition && availableMachines.length > 0) {
         const machine = availableMachines[0];
-        const newWorkers = [...new Set([...machine.assignedWorkers, ...assignedWorkers])];
+        const newWorkers = Array.from(new Set([...machine.assignedWorkers, ...assignedWorkers]));
         const newLoad = Math.min(100, machine.currentLoad + 50);
         await storage.updateMachineLoad(machine.id, newLoad, newWorkers);
       }

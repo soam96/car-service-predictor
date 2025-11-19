@@ -10,6 +10,7 @@
     "check": "tsc",
     "db:push": "drizzle-kit push",
     "train": "tsx scripts/train.ts --data data/car_prices.csv",
+    "train:service": "tsx scripts/train-service-time.ts --data data/service_times.csv",
     "postinstall": "npm run build"
   },
   "engines": {

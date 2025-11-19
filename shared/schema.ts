@@ -108,6 +108,15 @@ export const serviceRequestSchema = z.object({
   errorCodes: z.array(z.string()).default([]),
   rustLevel: z.enum(["None", "Minor", "Moderate", "Severe"]).default("None"),
   bodyDamage: z.enum(["None", "Minor", "Moderate", "Severe"]).default("None"),
+  warrantyStatus: z.enum(["In Warranty", "Out of Warranty"]).default("Out of Warranty"),
+  batterySOH: z.number().min(0).max(100).default(100),
+  fluidDegradation: z.number().min(0).max(100).default(0),
+  wearTearScore: z.number().min(0).max(100).default(0),
+  appointmentType: z.enum(["Appointment", "Walk-in"]).default("Appointment"),
+  servicePackage: z.enum(["Basic", "Standard", "Premium"]).default("Standard"),
+  customerApprovalSpeed: z.enum(["Fast", "Normal", "Slow"]).default("Normal"),
+  weather: z.enum(["Clear", "Rain", "Extreme"]).default("Clear"),
+  peakHours: z.boolean().default(false),
 });
 
 export type ServiceRequest = z.infer<typeof serviceRequestSchema>;

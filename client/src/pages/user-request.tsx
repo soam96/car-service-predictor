@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useState, useEffect } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { serviceRequestSchema, type ServiceRequest } from "@shared/schema";
@@ -12,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Clock, Users, Wrench, AlertCircle, CheckCircle2, Calendar } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
+import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 
@@ -87,6 +89,42 @@ export default function UserRequest() {
   const totalBaseTime = tasks
     ?.filter((task) => selectedTasks.includes(task.name))
     .reduce((sum, task) => sum + task.baseTimeHours, 0) || 0;
+
+  const [fluidDegradation, wearTearScore, batterySOH, kmSinceLastService, daysSinceLastService, rustLevel, bodyDamage, fuelType] = useWatch({
+    control: form.control,
+    name: [
+      'fluidDegradation',
+      'wearTearScore',
+      'batterySOH',
+      'kmSinceLastService',
+      'daysSinceLastService',
+      'rustLevel',
+      'bodyDamage',
+      'fuelType',
+    ],
+  }) as any[];
+  useEffect(() => {
+    const rustMap: Record<string, number> = { None: 0, Minor: 10, Moderate: 20, Severe: 35 };
+    const damageMap: Record<string, number> = { None: 0, Minor: 5, Moderate: 15, Severe: 30 };
+    let score = 100;
+    const fluids = Number(fluidDegradation || 0);
+    const wear = Number(wearTearScore || 0);
+    const battery = Number(batterySOH || 100);
+    const km = Number(kmSinceLastService || 0);
+    const days = Number(daysSinceLastService || 0);
+    const rust = rustMap[String(rustLevel || 'None')];
+    const damage = damageMap[String(bodyDamage || 'None')];
+    const ft = String(fuelType || 'Petrol');
+    score -= fluids * 0.5;
+    score -= wear * 0.4;
+    score -= rust;
+    score -= damage;
+    if (ft === 'Electric') score -= (100 - battery) * 0.3;
+    if (km > 10000) score -= 10; else if (km > 5000) score -= 5;
+    if (days > 365) score -= 10; else if (days > 180) score -= 7; else if (days > 90) score -= 4;
+    score = Math.max(0, Math.min(100, Math.round(score)));
+    form.setValue('healthScore', score, { shouldValidate: true, shouldDirty: true });
+  }, [fluidDegradation, wearTearScore, batterySOH, kmSinceLastService, daysSinceLastService, rustLevel, bodyDamage, fuelType, form]);
 
   if (prediction) {
     return (
@@ -195,7 +233,7 @@ export default function UserRequest() {
         </CardHeader>
         <CardContent>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+            <motion.form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold">Vehicle Information</h3>
@@ -208,6 +246,194 @@ export default function UserRequest() {
                         <FormLabel>Car Number</FormLabel>
                         <FormControl>
                           <Input placeholder="e.g., AB-1234-CD" {...field} data-testid="input-car-number" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="warrantyStatus"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Warranty Status</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select warranty" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="In Warranty">In Warranty</SelectItem>
+                            <SelectItem value="Out of Warranty">Out of Warranty</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="batterySOH"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Battery SOH</FormLabel>
+                        <FormDescription>Drag slider to set 0–100</FormDescription>
+                        <FormControl>
+                          <div className="space-y-2">
+                            <Slider value={[field.value ?? 100]} onValueChange={(v) => field.onChange(v[0])} min={0} max={100} step={1} />
+                            <div className="text-sm text-muted-foreground">{field.value ?? 100}%</div>
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="fluidDegradation"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Fluid Degradation (0-100)</FormLabel>
+                        <FormControl>
+                          <Input type="number" min="0" max="100" {...field} onChange={(e) => field.onChange(parseInt(e.target.value))} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="wearTearScore"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Wear & Tear</FormLabel>
+                        <Select onValueChange={(v) => field.onChange(parseInt(v))} defaultValue={String(field.value ?? 0)}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select level" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="0">None</SelectItem>
+                            <SelectItem value="25">Low</SelectItem>
+                            <SelectItem value="50">Medium</SelectItem>
+                            <SelectItem value="75">High</SelectItem>
+                            <SelectItem value="100">Severe</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="appointmentType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Appointment Type</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select type" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="Appointment">Appointment</SelectItem>
+                            <SelectItem value="Walk-in">Walk-in</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  
+
+                  <FormField
+                    control={form.control}
+                    name="servicePackage"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Service Package</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select package" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="Basic">Basic</SelectItem>
+                            <SelectItem value="Standard">Standard</SelectItem>
+                            <SelectItem value="Premium">Premium</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="customerApprovalSpeed"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Customer Approval Speed</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select speed" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="Fast">Fast</SelectItem>
+                            <SelectItem value="Normal">Normal</SelectItem>
+                            <SelectItem value="Slow">Slow</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  
+
+                  <FormField
+                    control={form.control}
+                    name="weather"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Weather</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select weather" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="Clear">Clear</SelectItem>
+                            <SelectItem value="Rain">Rain</SelectItem>
+                            <SelectItem value="Extreme">Extreme</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="peakHours"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Peak Hours</FormLabel>
+                        <FormControl>
+                          <Checkbox checked={!!field.value} onCheckedChange={(c) => field.onChange(!!c)} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -327,15 +553,20 @@ export default function UserRequest() {
                     name="daysSinceLastService"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Days Since Last Service</FormLabel>
+                        <FormLabel>Last Service Date</FormLabel>
                         <FormControl>
                           <Input 
-                            type="number" 
-                            {...field} 
-                            onChange={(e) => field.onChange(parseInt(e.target.value))}
-                            data-testid="input-days-since-service"
+                            type="date"
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const d = new Date(val + "T00:00:00");
+                              const now = new Date();
+                              const diffDays = Math.max(0, Math.floor((now.getTime() - d.getTime()) / (1000*60*60*24)));
+                              form.setValue("daysSinceLastService", diffDays);
+                            }}
                           />
                         </FormControl>
+                        <FormDescription>Calendar sets days automatically</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -381,7 +612,8 @@ export default function UserRequest() {
                             min="0" 
                             max="100" 
                             {...field} 
-                            onChange={(e) => field.onChange(parseInt(e.target.value))}
+                            readOnly
+                            aria-readonly="true"
                             data-testid="input-health-score"
                           />
                         </FormControl>
@@ -529,7 +761,7 @@ export default function UserRequest() {
                   "Submit Service Request"
                 )}
               </Button>
-            </form>
+            </motion.form>
           </Form>
         </CardContent>
       </Card>

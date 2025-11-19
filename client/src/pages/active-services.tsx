@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
-import { CheckCircle2, FileText, Clock } from "lucide-react";
+import { CheckCircle2, FileText, Clock, Car } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { ActiveService } from "@shared/schema";
+import { motion, AnimatePresence } from "framer-motion";
 
 export default function ActiveServices() {
   const { toast } = useToast();
@@ -16,6 +17,8 @@ export default function ActiveServices() {
   const { data: services, isLoading } = useQuery<ActiveService[]>({
     queryKey: ['/api/active-services'],
     refetchInterval: 5000,
+    staleTime: 10000,
+    refetchOnWindowFocus: false,
   });
 
   const completeMutation = useMutation({
@@ -55,9 +58,9 @@ export default function ActiveServices() {
     }
   };
 
-  const calculateTimeRemaining = (estimatedCompletion: string, progress: number) => {
+  const calculateTimeRemaining = (estimatedCompletion: string | Date, progress: number) => {
     const now = new Date();
-    const completion = new Date(estimatedCompletion);
+    const completion = new Date(estimatedCompletion as any);
     const totalTime = completion.getTime() - now.getTime();
     const remainingTime = (totalTime * (100 - progress)) / 100;
     
@@ -89,6 +92,34 @@ export default function ActiveServices() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {services && services.length > 0 && (
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-medium text-muted-foreground">Queue Lane</div>
+                <Badge variant="outline" className="text-xs">{services.filter(s => s.status === 'Queued').length} queued</Badge>
+              </div>
+              <div className="relative h-16 rounded-md bg-muted overflow-hidden">
+                <AnimatePresence>
+                  {services.filter(s => s.status === 'Queued').map((s) => (
+                    <motion.div
+                      key={s.id}
+                      initial={{ x: -80, opacity: 0 }}
+                      animate={{ x: 0, opacity: 1 }}
+                      exit={{ x: 80, opacity: 0 }}
+                      transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+                      className="absolute top-1/2 -translate-y-1/2 flex items-center gap-2"
+                      style={{ left: Math.min(90, (s.queuePosition || 1) * 12) + '%' }}
+                    >
+                      <div className="p-2 rounded-full bg-primary/10">
+                        <Car className="h-5 w-5 text-primary" />
+                      </div>
+                      <Badge variant="outline" className="text-xs">#{s.queuePosition || 1}</Badge>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            </div>
+          )}
           {isLoading ? (
             <div className="space-y-4">
               {[1, 2, 3].map((i) => (
@@ -116,8 +147,9 @@ export default function ActiveServices() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  <AnimatePresence>
                   {services.map((service) => (
-                    <TableRow key={service.id} data-testid={`row-service-${service.id}`}>
+                    <motion.tr key={service.id} data-testid={`row-service-${service.id}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
                       <TableCell className="font-mono text-sm" data-testid={`text-service-id-${service.id}`}>
                         {service.id}
                       </TableCell>
@@ -135,12 +167,14 @@ export default function ActiveServices() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="space-y-1 min-w-[120px]">
+                        <motion.div className="space-y-1 min-w-[120px]" initial={{ opacity: 0.7 }} animate={{ opacity: 1 }}>
                           <div className="flex items-center justify-between text-sm">
                             <span className="font-medium" data-testid={`text-progress-${service.id}`}>{service.progress}%</span>
                           </div>
-                          <Progress value={service.progress} className="h-2" />
-                        </div>
+                          <motion.div initial={{ scaleX: 0.98 }} animate={{ scaleX: 1 }} transition={{ duration: 0.3 }}>
+                            <Progress value={service.progress} className="h-2" />
+                          </motion.div>
+                        </motion.div>
                       </TableCell>
                       <TableCell data-testid={`text-time-remaining-${service.id}`}>
                         {calculateTimeRemaining(service.estimatedCompletion, service.progress)}
@@ -160,14 +194,18 @@ export default function ActiveServices() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" data-testid={`badge-machine-${service.id}`}>
-                          {service.assignedMachine}
-                        </Badge>
+                        <motion.div initial={{ scale: 0.98 }} animate={{ scale: 1 }}>
+                          <Badge variant="outline" data-testid={`badge-machine-${service.id}`}>
+                            {service.assignedMachine}
+                          </Badge>
+                        </motion.div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={getStatusColor(service.status)} data-testid={`badge-status-${service.id}`}>
-                          {service.status}
-                        </Badge>
+                        <motion.div initial={{ y: -2 }} animate={{ y: 0 }}>
+                          <Badge variant="outline" className={getStatusColor(service.status)} data-testid={`badge-status-${service.id}`}>
+                            {service.status}
+                          </Badge>
+                        </motion.div>
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-2">
@@ -190,8 +228,9 @@ export default function ActiveServices() {
                           </Button>
                         </div>
                       </TableCell>
-                    </TableRow>
+                    </motion.tr>
                   ))}
+                  </AnimatePresence>
                 </TableBody>
               </Table>
             </div>

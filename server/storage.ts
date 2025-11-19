@@ -17,6 +17,8 @@ export interface IStorage {
   getWorkers(): Promise<Worker[]>;
   getWorker(id: string): Promise<Worker | undefined>;
   getWorkersBySkill(skill: string): Promise<Worker[]>;
+  createWorker(worker: InsertWorker): Promise<Worker>;
+  deleteWorker(id: string): Promise<boolean>;
   updateWorkerLoad(id: string, loadPercent: number, activeJobs: string[]): Promise<void>;
   
   // Machines
@@ -28,6 +30,9 @@ export interface IStorage {
   getInventory(): Promise<Inventory[]>;
   getInventoryItem(partName: string): Promise<Inventory | undefined>;
   updateStock(partName: string, quantity: number): Promise<void>;
+  createInventoryItem(item: InsertInventory): Promise<Inventory>;
+  updateInventoryItem(id: string, updates: Partial<InsertInventory>): Promise<Inventory | undefined>;
+  deleteInventoryItem(id: string): Promise<boolean>;
   
   // Service Tasks
   getServiceTasks(): Promise<ServiceTask[]>;
@@ -170,6 +175,27 @@ export class MemStorage implements IStorage {
     return Array.from(this.workers.values()).filter((w) => w.skill === skill);
   }
 
+  async createWorker(worker: InsertWorker): Promise<Worker> {
+    const id = randomUUID();
+    const newWorker: Worker = {
+      id,
+      name: worker.name,
+      skill: worker.skill,
+      experienceLevel: worker.experienceLevel,
+      certifications: worker.certifications ?? [],
+      rating: worker.rating ?? 4.0,
+      loadPercent: 0,
+      activeJobs: [],
+      status: 'Available',
+    };
+    this.workers.set(id, newWorker);
+    return newWorker;
+  }
+
+  async deleteWorker(id: string): Promise<boolean> {
+    return this.workers.delete(id);
+  }
+
   async updateWorkerLoad(id: string, loadPercent: number, activeJobs: string[]): Promise<void> {
     const worker = this.workers.get(id);
     if (worker) {
@@ -213,6 +239,43 @@ export class MemStorage implements IStorage {
     }
   }
 
+  async createInventoryItem(item: InsertInventory): Promise<Inventory> {
+    const exists = this.inventoryItems.get(item.partName);
+    if (exists) {
+      exists.quantity = item.quantity ?? exists.quantity;
+      exists.minimumStock = item.minimumStock ?? exists.minimumStock;
+      return exists;
+    }
+    const inv: Inventory = {
+      id: randomUUID(),
+      partName: item.partName,
+      quantity: item.quantity ?? 0,
+      minimumStock: item.minimumStock ?? 5,
+    };
+    this.inventoryItems.set(inv.partName, inv);
+    return inv;
+  }
+
+  async updateInventoryItem(id: string, updates: Partial<InsertInventory>): Promise<Inventory | undefined> {
+    const item = Array.from(this.inventoryItems.values()).find(i => i.id === id);
+    if (!item) return undefined;
+    if (updates.partName && updates.partName !== item.partName) {
+      // re-key map
+      this.inventoryItems.delete(item.partName);
+      item.partName = updates.partName;
+      this.inventoryItems.set(item.partName, item);
+    }
+    if (typeof updates.quantity === 'number') item.quantity = updates.quantity;
+    if (typeof updates.minimumStock === 'number') item.minimumStock = updates.minimumStock;
+    return item;
+  }
+
+  async deleteInventoryItem(id: string): Promise<boolean> {
+    const item = Array.from(this.inventoryItems.values()).find(i => i.id === id);
+    if (!item) return false;
+    return this.inventoryItems.delete(item.partName);
+  }
+
   // Service Tasks
   async getServiceTasks(): Promise<ServiceTask[]> {
     return Array.from(this.serviceTasks.values());
@@ -235,6 +298,10 @@ export class MemStorage implements IStorage {
     const activeService: ActiveService = {
       ...service,
       actualStartTime: new Date(),
+      status: service.status ?? (service.queuePosition ? "Queued" : "In Progress"),
+      progress: service.progress ?? 0,
+      errorCodes: service.errorCodes ?? [],
+      queuePosition: service.queuePosition ?? null,
     };
     this.activeServices.set(activeService.id, activeService);
     return activeService;

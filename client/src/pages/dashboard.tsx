@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, Wrench, Clock, Package, Activity } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,7 +18,9 @@ interface DashboardStats {
 export default function Dashboard() {
   const { data: stats, isLoading } = useQuery<DashboardStats>({
     queryKey: ['/api/dashboard-stats'],
-    refetchInterval: 5000, // Refresh every 5 seconds
+    refetchInterval: 5000,
+    staleTime: 10000,
+    refetchOnWindowFocus: false,
   });
 
   const statCards = [
@@ -85,26 +88,34 @@ export default function Dashboard() {
             ))}
           </>
         ) : (
-          statCards.map((stat, index) => (
-            <Card key={index} data-testid={`card-stat-${index}`}>
-              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  {stat.title}
-                </CardTitle>
-                <div className={`p-2 rounded-md ${stat.bgColor}`}>
-                  <stat.icon className={`h-5 w-5 ${stat.color}`} />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-semibold" data-testid={`text-stat-value-${index}`}>{stat.value}</div>
-                {stat.title === "Queue Count" && stat.value > 0 && (
-                  <p className="text-xs text-amber-600 mt-2">
-                    Workshop at capacity
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          ))
+          <AnimatePresence>
+            {statCards.map((stat, index) => (
+              <motion.div
+                key={stat.title}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.25 }}
+              >
+                <Card data-testid={`card-stat-${index}`}>
+                  <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">
+                      {stat.title}
+                    </CardTitle>
+                    <div className={`p-2 rounded-md ${stat.bgColor}`}>
+                      <stat.icon className={`h-5 w-5 ${stat.color}`} />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-3xl font-semibold" data-testid={`text-stat-value-${index}`}>{stat.value}</div>
+                    {stat.title === "Queue Count" && stat.value > 0 && (
+                      <p className="text-xs text-amber-600 mt-2">Workshop at capacity</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </AnimatePresence>
         )}
       </div>
 
@@ -125,13 +136,36 @@ export default function Dashboard() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Capacity Used</span>
-                    <span className="font-medium" data-testid="text-capacity-used">{stats?.capacityUsed || 0}%</span>
+                    <AnimatePresence mode="popLayout">
+                      <motion.span 
+                        key={stats?.lastUpdated}
+                        className="font-medium"
+                        data-testid="text-capacity-used"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                      >
+                        {stats?.capacityUsed || 0}%
+                      </motion.span>
+                    </AnimatePresence>
                   </div>
-                  <div className="w-full bg-secondary rounded-full h-2">
-                    <div 
-                      className="bg-primary h-2 rounded-full transition-all duration-500"
-                      style={{ width: `${stats?.capacityUsed || 0}%` }}
-                    />
+                  <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
+                    {(() => {
+                      const cap = Math.min(100, Math.max(0, stats?.capacityUsed || 0));
+                      return (
+                        <motion.div 
+                          className={`h-2 rounded-full ${cap >= 90 ? 'animate-pulse' : ''}`}
+                          style={{ width: `${cap}%`, backgroundImage: 'linear-gradient(90deg,var(--tw-gradient-stops))', backgroundColor: 'var(--primary)' }}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${cap}%` }}
+                          transition={{ type: 'spring', stiffness: 180, damping: 25 }}
+                          aria-valuenow={cap}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          role="progressbar"
+                        />
+                      );
+                    })()}
                   </div>
                 </div>
 
