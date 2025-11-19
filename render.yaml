@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: car-service-predictor
+    env: node
+    autoDeploy: true
+    buildCommand: npm install
+    startCommand: npm start
