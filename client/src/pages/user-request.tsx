@@ -225,8 +225,8 @@ export default function UserRequest() {
   }
 
   return (
-    <div className="container mx-auto max-w-4xl p-6">
-      <Card>
+    <div className="container mx-auto max-w-4xl p-6 bg-background min-h-[calc(100vh-64px)]">
+      <Card className="rounded-2xl border bg-card shadow">
         <CardHeader>
           <CardTitle className="text-2xl">Service Request</CardTitle>
           <CardDescription>Submit your vehicle details for AI-powered service time prediction</CardDescription>
@@ -243,9 +243,16 @@ export default function UserRequest() {
                     name="carNumber"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Car Number</FormLabel>
                         <FormControl>
-                          <Input placeholder="e.g., AB-1234-CD" {...field} data-testid="input-car-number" />
+                          <div className="relative">
+                            <Input 
+                              {...field} 
+                              placeholder=" " 
+                              data-testid="input-car-number" 
+                              className="peer"
+                            />
+                            <label className="absolute left-3 top-2 text-muted-foreground transition-all duration-200 peer-placeholder-shown:top-2 peer-placeholder-shown:text-sm peer-focus:-top-3 peer-focus:text-xs peer-focus:text-primary bg-transparent">Car Number</label>
+                          </div>
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -297,9 +304,21 @@ export default function UserRequest() {
                     name="fluidDegradation"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Fluid Degradation (0-100)</FormLabel>
+                        <FormLabel>Fluid Degradation</FormLabel>
+                        <FormDescription>Drag slider to set 0–100</FormDescription>
                         <FormControl>
-                          <Input type="number" min="0" max="100" {...field} onChange={(e) => field.onChange(parseInt(e.target.value))} />
+                          <div className="space-y-2">
+                            <Slider 
+                              value={[field.value ?? 0]} 
+                              onValueChange={(v) => field.onChange(v[0])} 
+                              min={0} 
+                              max={100} 
+                              step={1}
+                              className="[&_[role=slider]]:shadow [&_[role=slider]]:shadow-black/40"
+                            />
+                            <div className="h-1 rounded-full bg-gradient-to-r from-green-500 via-yellow-500 to-red-600" />
+                            <div className="text-sm text-muted-foreground">{field.value ?? 0}%</div>
+                          </div>
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -684,42 +703,33 @@ export default function UserRequest() {
                             <span>Loading tasks...</span>
                           </div>
                         ) : (
-                          <div className="space-y-2 max-h-64 overflow-y-auto border rounded-md p-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto">
                             {tasks?.map((task) => (
                               <FormField
                                 key={task.id}
                                 control={form.control}
                                 name="selectedTasks"
                                 render={({ field }) => {
+                                  const selected = field.value?.includes(task.name);
                                   return (
-                                    <FormItem
+                                    <motion.div 
                                       key={task.id}
-                                      className="flex flex-row items-start space-x-3 space-y-0"
+                                      whileTap={{ scale: 0.98 }}
+                                      className={`rounded-md border p-3 cursor-pointer transition-transform ${selected ? 'border-blue-500 ring-1 ring-blue-400' : 'border-white/10'}`}
+                                      onClick={() => {
+                                        field.onChange(
+                                          selected
+                                            ? field.value?.filter((v: string) => v !== task.name)
+                                            : [...field.value, task.name]
+                                        );
+                                      }}
+                                      data-testid={`card-task-${task.id}`}
                                     >
-                                      <FormControl>
-                                        <Checkbox
-                                          checked={field.value?.includes(task.name)}
-                                          onCheckedChange={(checked) => {
-                                            return checked
-                                              ? field.onChange([...field.value, task.name])
-                                              : field.onChange(
-                                                  field.value?.filter(
-                                                    (value) => value !== task.name
-                                                  )
-                                                )
-                                          }}
-                                          data-testid={`checkbox-task-${task.id}`}
-                                        />
-                                      </FormControl>
-                                      <div className="flex-1 flex justify-between items-center">
-                                        <FormLabel className="font-normal cursor-pointer">
-                                          {task.name}
-                                        </FormLabel>
-                                        <Badge variant="outline" className="text-xs">
-                                          {task.baseTimeHours}h
-                                        </Badge>
+                                      <div className="flex items-center justify-between">
+                                        <div className="font-medium">{task.name}</div>
+                                        <Badge variant="outline" className="text-xs">{task.baseTimeHours}h</Badge>
                                       </div>
-                                    </FormItem>
+                                    </motion.div>
                                   );
                                 }}
                               />
@@ -745,12 +755,12 @@ export default function UserRequest() {
                 </div>
               </div>
 
-              <Button 
-                type="submit" 
-                className="w-full" 
-                size="lg" 
+              <motion.button 
+                type="submit"
+                className="w-full inline-flex items-center justify-center rounded-md bg-gradient-to-r from-blue-600 to-blue-800 text-white px-4 py-2 text-sm font-medium shadow hover:from-blue-500 hover:to-blue-700"
                 disabled={submitMutation.isPending}
                 data-testid="button-submit-request"
+                whileTap={{ scale: 0.98 }}
               >
                 {submitMutation.isPending ? (
                   <>
@@ -760,7 +770,7 @@ export default function UserRequest() {
                 ) : (
                   "Submit Service Request"
                 )}
-              </Button>
+              </motion.button>
             </motion.form>
           </Form>
         </CardContent>

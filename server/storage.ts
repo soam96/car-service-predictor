@@ -10,6 +10,7 @@ import type {
   InsertServiceTask,
   ActiveService,
   InsertActiveService,
+  CompletedService,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -48,6 +49,11 @@ export interface IStorage {
   // Analytics
   getCompletedServicesCount(): Promise<number>;
   addCompletedService(serviceTime: number): Promise<void>;
+
+  // Completed Services records
+  getCompletedServices(): Promise<CompletedService[]>;
+  getCompletedService(id: string): Promise<CompletedService | undefined>;
+  addCompletedServiceRecord(record: CompletedService): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -57,6 +63,7 @@ export class MemStorage implements IStorage {
   private serviceTasks: Map<string, ServiceTask>;
   private activeServices: Map<string, ActiveService>;
   private completedServices: number;
+  private completedServiceRecords: Map<string, CompletedService>;
   private totalServiceTime: number;
 
   constructor() {
@@ -66,6 +73,7 @@ export class MemStorage implements IStorage {
     this.serviceTasks = new Map();
     this.activeServices = new Map();
     this.completedServices = 0;
+    this.completedServiceRecords = new Map();
     this.totalServiceTime = 0;
     
     this.initializeData();
@@ -333,6 +341,19 @@ export class MemStorage implements IStorage {
 
   getAverageServiceTime(): number {
     return this.completedServices > 0 ? this.totalServiceTime / this.completedServices : 0;
+  }
+
+  // Completed Services records
+  async getCompletedServices(): Promise<CompletedService[]> {
+    return Array.from(this.completedServiceRecords.values()).sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
+  }
+
+  async getCompletedService(id: string): Promise<CompletedService | undefined> {
+    return this.completedServiceRecords.get(id);
+  }
+
+  async addCompletedServiceRecord(record: CompletedService): Promise<void> {
+    this.completedServiceRecords.set(record.id, record);
   }
 }
 

@@ -8,7 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { CheckCircle2, FileText, Clock, Car } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { ActiveService } from "@shared/schema";
+import type { ActiveService, CompletedService } from "@shared/schema";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function ActiveServices() {
@@ -21,6 +21,12 @@ export default function ActiveServices() {
     refetchOnWindowFocus: false,
   });
 
+  const { data: completed, isLoading: completedLoading } = useQuery<CompletedService[]>({
+    queryKey: ['/api/completed-services'],
+    staleTime: 30000,
+    refetchOnWindowFocus: false,
+  });
+
   const completeMutation = useMutation({
     mutationFn: async (serviceId: string) => {
       return await apiRequest('POST', `/api/complete-service/${serviceId}`, {});
@@ -29,6 +35,7 @@ export default function ActiveServices() {
       queryClient.invalidateQueries({ queryKey: ['/api/active-services'] });
       queryClient.invalidateQueries({ queryKey: ['/api/workers'] });
       queryClient.invalidateQueries({ queryKey: ['/api/dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/completed-services'] });
       toast({
         title: "Service Completed",
         description: "Service has been completed and resources have been freed.",
@@ -75,8 +82,63 @@ export default function ActiveServices() {
     return `${minutes}m`;
   };
 
+  const initials = (name: string) => name.split(' ').map((n) => n[0]).join('').slice(0,2).toUpperCase();
+
+  const downloadReceipt = (record: CompletedService) => {
+    const dateStr = new Date(record.completedAt).toLocaleString();
+    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
+    <title>Receipt ${record.id}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <style>
+      body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; background:#fff; color:#0f172a;}
+      .card{max-width:720px;margin:24px auto;padding:24px;border:1px solid #CBD3DF;border-radius:16px;background:#F7F9FB}
+      .row{display:flex;justify-content:space-between;gap:16px}
+      .muted{color:#64748b;font-size:12px}
+      h1{font-size:20px;margin:0 0 8px}
+      table{width:100%;border-collapse:collapse;margin-top:16px}
+      th,td{border:1px solid #CBD3DF;padding:10px;text-align:left;font-size:14px}
+      th{background:#eaf1fb}
+      .total{font-weight:600;color:#1A73E8}
+      .badge{display:inline-block;padding:4px 8px;border:1px solid #CBD3DF;border-radius:8px;background:#fff;color:#1A73E8;font-size:12px}
+    </style></head><body>
+      <div class="card">
+        <h1>Service Receipt</h1>
+        <div class="muted">${dateStr}</div>
+        <div class="row" style="margin-top:12px">
+          <div>
+            <div><strong>Service ID:</strong> ${record.id}</div>
+            <div><strong>Vehicle:</strong> ${record.carModel} (${record.carNumber})</div>
+            <div><strong>Type:</strong> ${record.serviceType}</div>
+          </div>
+          <div>
+            <div><span class="badge">${record.assignedMachine}</span></div>
+            <div class="muted" style="margin-top:6px">Workers: ${record.assignedWorkers.join(', ') || '—'}</div>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Item</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
+          <tbody>
+            <tr><td>Labour (${record.predictedHours.toFixed(2)}h)</td><td>1</td><td>$250.00</td><td>$${record.amount.toFixed(2)}</td></tr>
+            ${record.selectedTasks.map(t=>`<tr><td>${t}</td><td>1</td><td>$0.00</td><td>$0.00</td></tr>`).join('')}
+            <tr><td colspan="3" class="total">Total</td><td class="total">$${record.amount.toFixed(2)}</td></tr>
+          </tbody>
+        </table>
+        <div class="muted" style="margin-top:12px">Note: Parts priced separately if used.</div>
+      </div>
+    </body></html>`;
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${record.id}_receipt.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-6 bg-background min-h-[calc(100vh-64px)]">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-page-title">Active Services</h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -84,7 +146,7 @@ export default function ActiveServices() {
         </p>
       </div>
 
-      <Card>
+      <Card className="rounded-2xl border bg-card shadow">
         <CardHeader>
           <CardTitle>Services In Progress</CardTitle>
           <CardDescription>
@@ -167,35 +229,48 @@ export default function ActiveServices() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <motion.div className="space-y-1 min-w-[120px]" initial={{ opacity: 0.7 }} animate={{ opacity: 1 }}>
+                        <motion.div className="space-y-1 min-w-[140px]" initial={{ opacity: 0.9 }} animate={{ opacity: 1 }}>
                           <div className="flex items-center justify-between text-sm">
                             <span className="font-medium" data-testid={`text-progress-${service.id}`}>{service.progress}%</span>
                           </div>
-                          <motion.div initial={{ scaleX: 0.98 }} animate={{ scaleX: 1 }} transition={{ duration: 0.3 }}>
-                            <Progress value={service.progress} className="h-2" />
-                          </motion.div>
+                          <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+                            <motion.div 
+                              className="h-2 rounded-full"
+                              style={{ backgroundImage: 'linear-gradient(90deg,#3b82f6,#06b6d4)', filter: 'brightness(1.1)' }}
+                              initial={{ width: 0, backgroundPositionX: 0 }}
+                              animate={{ width: `${service.progress}%`, backgroundPositionX: 40 }}
+                              transition={{ type: 'spring', stiffness: 200, damping: 24 }}
+                              aria-valuenow={service.progress}
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              role="progressbar"
+                            />
+                          </div>
                         </motion.div>
                       </TableCell>
                       <TableCell data-testid={`text-time-remaining-${service.id}`}>
                         {calculateTimeRemaining(service.estimatedCompletion, service.progress)}
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-wrap gap-1 max-w-[150px]">
-                          {service.assignedWorkers.slice(0, 2).map((worker, idx) => (
-                            <Badge key={idx} variant="secondary" className="text-xs" data-testid={`badge-worker-${service.id}-${idx}`}>
-                              {worker}
-                            </Badge>
+                        <div className="flex flex-wrap gap-2 max-w-[200px]">
+                          {service.assignedWorkers.slice(0, 3).map((worker, idx) => (
+                            <div key={idx} className="relative">
+                              <div className="h-7 w-7 rounded-full bg-white/10 flex items-center justify-center text-xs font-semibold ring-2 ring-[#0ABEFF]/60 shadow-[0_0_10px_rgba(10,190,255,0.35)]">
+                                {initials(worker)}
+                              </div>
+                              <span className="absolute -inset-[2px] rounded-full ring-2 ring-[#0ABEFF]/30" />
+                            </div>
                           ))}
-                          {service.assignedWorkers.length > 2 && (
+                          {service.assignedWorkers.length > 3 && (
                             <Badge variant="secondary" className="text-xs">
-                              +{service.assignedWorkers.length - 2}
+                              +{service.assignedWorkers.length - 3}
                             </Badge>
                           )}
                         </div>
                       </TableCell>
                       <TableCell>
                         <motion.div initial={{ scale: 0.98 }} animate={{ scale: 1 }}>
-                          <Badge variant="outline" data-testid={`badge-machine-${service.id}`}>
+                          <Badge variant="outline" data-testid={`badge-machine-${service.id}`} className="backdrop-blur-sm">
                             {service.assignedMachine}
                           </Badge>
                         </motion.div>
@@ -244,6 +319,68 @@ export default function ActiveServices() {
                 There are currently no services in progress. New service requests will appear here automatically.
               </p>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border bg-card shadow">
+        <CardHeader>
+          <CardTitle>Completed Services</CardTitle>
+          <CardDescription>History of recently completed jobs</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {completedLoading ? (
+            <div className="space-y-4">
+              {[1,2].map(i => (
+                <div key={i} className="space-y-2">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-3/4" />
+                </div>
+              ))}
+            </div>
+          ) : completed && completed.length > 0 ? (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Service ID</TableHead>
+                    <TableHead>Vehicle</TableHead>
+                    <TableHead>Service Type</TableHead>
+                    <TableHead>Hours</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Completed</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {completed.map((rec) => (
+                    <TableRow key={rec.id} data-testid={`row-completed-${rec.id}`}>
+                      <TableCell className="font-mono text-sm">{rec.id}</TableCell>
+                      <TableCell>
+                        <div>
+                          <div className="font-medium">{rec.carModel}</div>
+                          <div className="text-sm text-muted-foreground">{rec.carNumber}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>{rec.serviceType}</TableCell>
+                      <TableCell>{rec.predictedHours.toFixed(2)}h</TableCell>
+                      <TableCell className="text-[#1A73E8]">${rec.amount.toFixed(2)}</TableCell>
+                      <TableCell>{new Date(rec.completedAt).toLocaleString()}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline" onClick={() => downloadReceipt(rec)} data-testid={`button-download-receipt-${rec.id}`}>
+                            <FileText className="h-4 w-4 mr-1" />
+                            Download Receipt
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">No completed services yet.</div>
           )}
         </CardContent>
       </Card>

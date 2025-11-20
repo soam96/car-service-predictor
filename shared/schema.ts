@@ -131,3 +131,17 @@ export const analyticsSchema = z.object({
 });
 
 export type Analytics = z.infer<typeof analyticsSchema>;
+
+// Completed Service Record (for receipts and history)
+export type CompletedService = {
+  id: string;
+  carNumber: string;
+  carModel: string;
+  serviceType: string;
+  selectedTasks: string[];
+  predictedHours: number;
+  assignedMachine: string;
+  assignedWorkers: string[]; // worker names
+  completedAt: string; // ISO string
+  amount: number; // simple billing amount aligned with analytics revenue calc
+};

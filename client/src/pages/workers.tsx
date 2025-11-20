@@ -93,16 +93,16 @@ export default function Workers() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-6 bg-background min-h-[calc(100vh-64px)]">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-page-title">Worker Management</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <h1 className="text-2xl font-semibold tracking-tight text-white" data-testid="text-page-title">Worker Management</h1>
+        <p className="text-sm text-[#b7c0cc] mt-1">
           Monitor and manage workshop technicians
         </p>
       </div>
 
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
-      <Card>
+      <Card className="rounded-2xl border bg-card shadow">
         <CardHeader>
           <CardTitle>Add Worker</CardTitle>
           <CardDescription>Create a new technician</CardDescription>
@@ -149,7 +149,7 @@ export default function Workers() {
       </Card>
       </motion.div>
 
-      <Card>
+       <Card className="rounded-2xl border bg-card shadow">
         <CardHeader>
           <CardTitle>Active Workers</CardTitle>
           <CardDescription>
@@ -199,7 +199,7 @@ export default function Workers() {
                       <TableCell>
                         <div className="flex items-center gap-3">
                           <Avatar>
-                            <AvatarFallback className="bg-primary/10 text-primary font-medium">
+                            <AvatarFallback className="bg-primary/10 text-primary font-medium ring-2 ring-[#0ABEFF]/60 shadow-[0_0_10px_rgba(10,190,255,0.35)]">
                               {getInitials(worker.name)}
                             </AvatarFallback>
                           </Avatar>

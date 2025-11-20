@@ -260,6 +260,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Add to completed services
       await storage.addCompletedService(service.predictedHours);
+      // Build completed service record for receipt/history
+      const workerNames: string[] = [];
+      for (const workerId of service.assignedWorkers) {
+        const w = await storage.getWorker(workerId);
+        if (w) workerNames.push(w.name);
+      }
+      const completedRecord = {
+        id: service.id,
+        carNumber: service.carNumber,
+        carModel: service.carModel,
+        serviceType: service.serviceType,
+        selectedTasks: (service.selectedTasks as any) as string[],
+        predictedHours: service.predictedHours,
+        assignedMachine: service.assignedMachine,
+        assignedWorkers: workerNames,
+        completedAt: new Date().toISOString(),
+        amount: parseFloat((service.predictedHours * 250).toFixed(2)),
+      };
+      await storage.addCompletedServiceRecord(completedRecord);
       
       // Remove from active services
       await storage.removeActiveService(id);
@@ -267,6 +286,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to complete service" });
+    }
+  });
+
+  // GET /api/completed-services - Get completed services records
+  app.get("/api/completed-services", async (_req, res) => {
+    try {
+      const records = await storage.getCompletedServices();
+      res.json(records);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch completed services" });
     }
   });
 
