@@ -10,6 +10,7 @@ interface DashboardStats {
   availableWorkers: number;
   queueCount: number;
   capacityUsed: number;
+  totalMachines: number;
   machinesActive: number;
   lowStockItems: number;
   lastUpdated: string;
@@ -162,14 +163,19 @@ export default function Dashboard() {
             ) : (
               <>
                 <div className="flex items-center justify-center">
-                  <Donut value={Math.min(100, Math.max(0, stats?.capacityUsed || 0))} />
+                  <Donut value={Math.min(100, Math.max(0, (() => {
+                    const tm = stats?.totalMachines || 0;
+                    const ma = stats?.machinesActive || 0;
+                    if (tm > 0) return (ma / tm) * 100;
+                    return stats?.capacityUsed || 0;
+                  })()))} />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 pt-4">
                   <div className="space-y-1">
                     <div className="text-sm text-muted-foreground">Machines Active</div>
                     <div className="text-2xl font-semibold" data-testid="text-machines-active">
-                      <AnimatedNumber value={stats?.machinesActive || 0} />/6
+                      <AnimatedNumber value={stats?.machinesActive || 0} />/{stats?.totalMachines || 0}
                     </div>
                   </div>
                   <div className="space-y-1">

@@ -194,8 +194,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const lowStockItems = inventory.filter(i => i.quantity < i.minimumStock).length;
       const machinesActive = machines.filter(m => m.assignedWorkers.length > 0).length;
       
-      const totalLoad = workers.reduce((sum, w) => sum + w.loadPercent, 0);
-      const capacityUsed = workers.length > 0 ? totalLoad / workers.length : 0;
+      // Capacity as machine utilization percentage (matches user expectation)
+      const capacityUsed = machines.length > 0 ? (machinesActive / machines.length) * 100 : 0;
 
       res.json({
         totalWorkers: workers.length,
@@ -203,6 +203,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         availableWorkers,
         queueCount,
         capacityUsed: Math.round(capacityUsed),
+        totalMachines: machines.length,
         machinesActive,
         lowStockItems,
         lastUpdated: new Date().toISOString(),
@@ -282,6 +283,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Remove from active services
       await storage.removeActiveService(id);
+
+      // Try to start the next queued service if a machine is available
+      const queued = (await storage.getActiveServices())
+        .filter(s => s.status === "Queued")
+        .sort((a, b) => (a.queuePosition || 0) - (b.queuePosition || 0));
+      if (queued.length > 0) {
+        const machinesAfter = await storage.getMachines();
+        const availableMachines = machinesAfter
+          .filter(m => m.assignedWorkers.length < 3 && m.currentLoad < 90)
+          .sort((a, b) => a.currentLoad - b.currentLoad);
+        const next = queued[0];
+        if (availableMachines.length > 0) {
+          const start = new Date();
+          const est = applyBusinessHours(start, next.predictedHours);
+          await storage.updateActiveService(next.id, {
+            status: "In Progress",
+            queuePosition: null as any,
+            assignedMachine: `Bay ${availableMachines[0].bayNumber}`,
+            actualStartTime: start as any,
+            estimatedCompletion: est as any,
+          } as any);
+          for (const workerId of next.assignedWorkers) {
+            const w = await storage.getWorker(workerId);
+            if (w) {
+              const newJobs = [...w.activeJobs, next.id];
+              const newLoad = Math.min(100, w.loadPercent + (100 / 3));
+              await storage.updateWorkerLoad(workerId, Math.round(newLoad), newJobs);
+            }
+          }
+          const machineToUse = availableMachines[0];
+          const newWorkers = Array.from(new Set([...machineToUse.assignedWorkers, ...next.assignedWorkers]));
+          const newLoad = Math.min(100, machineToUse.currentLoad + 50);
+          await storage.updateMachineLoad(machineToUse.id, newLoad, newWorkers);
+        }
+      }
 
       res.json({ success: true });
     } catch (error) {
@@ -497,13 +533,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: queuePosition ? "Queued" : "In Progress",
       });
 
-      // Step 10: Update worker loads
-      for (const workerId of assignedWorkers) {
-        const worker = await storage.getWorker(workerId);
-        if (worker) {
-          const newJobs = [...worker.activeJobs, serviceId];
-          const newLoad = Math.min(100, worker.loadPercent + (100 / 3)); // Each job adds ~33% load
-          await storage.updateWorkerLoad(workerId, Math.round(newLoad), newJobs);
+      // Step 10: Update worker loads only if service starts immediately (not queued)
+      if (!queuePosition) {
+        for (const workerId of assignedWorkers) {
+          const worker = await storage.getWorker(workerId);
+          if (worker) {
+            const newJobs = [...worker.activeJobs, serviceId];
+            const newLoad = Math.min(100, worker.loadPercent + (100 / 3)); // Each job adds ~33% load
+            await storage.updateWorkerLoad(workerId, Math.round(newLoad), newJobs);
+          }
         }
       }
 

@@ -44,6 +44,7 @@ export interface IStorage {
   getActiveService(id: string): Promise<ActiveService | undefined>;
   createActiveService(service: InsertActiveService & { id: string }): Promise<ActiveService>;
   updateServiceProgress(id: string, progress: number): Promise<void>;
+  updateActiveService(id: string, updates: Partial<ActiveService>): Promise<ActiveService | undefined>;
   removeActiveService(id: string): Promise<void>;
   
   // Analytics
@@ -323,6 +324,19 @@ export class MemStorage implements IStorage {
         service.status = "Completing";
       }
     }
+  }
+
+  async updateActiveService(id: string, updates: Partial<ActiveService>): Promise<ActiveService | undefined> {
+    const service = this.activeServices.get(id);
+    if (!service) return undefined;
+    const updated: ActiveService = {
+      ...service,
+      ...updates,
+    };
+    // preserve id
+    updated.id = service.id;
+    this.activeServices.set(id, updated);
+    return updated;
   }
 
   async removeActiveService(id: string): Promise<void> {
