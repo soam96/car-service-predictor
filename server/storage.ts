@@ -51,10 +51,15 @@ export interface IStorage {
   getCompletedServicesCount(): Promise<number>;
   addCompletedService(serviceTime: number): Promise<void>;
 
+  // Queue Policy
+  getQueuePolicy(): Promise<"FIFO" | "SJF" | "PRIORITY">;
+  setQueuePolicy(policy: "FIFO" | "SJF" | "PRIORITY"): Promise<void>;
+
   // Completed Services records
   getCompletedServices(): Promise<CompletedService[]>;
   getCompletedService(id: string): Promise<CompletedService | undefined>;
   addCompletedServiceRecord(record: CompletedService): Promise<void>;
+  updateCompletedServiceRecord(id: string, updates: Partial<CompletedService>): Promise<CompletedService | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -66,6 +71,7 @@ export class MemStorage implements IStorage {
   private completedServices: number;
   private completedServiceRecords: Map<string, CompletedService>;
   private totalServiceTime: number;
+  private queuePolicy: "FIFO" | "SJF" | "PRIORITY";
 
   constructor() {
     this.workers = new Map();
@@ -76,6 +82,7 @@ export class MemStorage implements IStorage {
     this.completedServices = 0;
     this.completedServiceRecords = new Map();
     this.totalServiceTime = 0;
+    this.queuePolicy = "FIFO";
     
     this.initializeData();
   }
@@ -310,6 +317,8 @@ export class MemStorage implements IStorage {
       status: service.status ?? (service.queuePosition ? "Queued" : "In Progress"),
       progress: service.progress ?? 0,
       errorCodes: service.errorCodes ?? [],
+      reservedParts: service.reservedParts ?? [],
+      priority: service.priority ?? 'Normal',
       queuePosition: service.queuePosition ?? null,
     };
     this.activeServices.set(activeService.id, activeService);
@@ -353,6 +362,14 @@ export class MemStorage implements IStorage {
     this.totalServiceTime += serviceTime;
   }
 
+  async getQueuePolicy(): Promise<"FIFO" | "SJF" | "PRIORITY"> {
+    return this.queuePolicy;
+  }
+
+  async setQueuePolicy(policy: "FIFO" | "SJF" | "PRIORITY"): Promise<void> {
+    this.queuePolicy = policy;
+  }
+
   getAverageServiceTime(): number {
     return this.completedServices > 0 ? this.totalServiceTime / this.completedServices : 0;
   }
@@ -368,6 +385,14 @@ export class MemStorage implements IStorage {
 
   async addCompletedServiceRecord(record: CompletedService): Promise<void> {
     this.completedServiceRecords.set(record.id, record);
+  }
+
+  async updateCompletedServiceRecord(id: string, updates: Partial<CompletedService>): Promise<CompletedService | undefined> {
+    const existing = this.completedServiceRecords.get(id);
+    if (!existing) return undefined;
+    const updated: CompletedService = { ...existing, ...updates, id: existing.id };
+    this.completedServiceRecords.set(id, updated);
+    return updated;
   }
 }
 

@@ -277,6 +277,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         assignedMachine: service.assignedMachine,
         assignedWorkers: workerNames,
         completedAt: new Date().toISOString(),
+        currency: "INR",
+        items: [
+          {
+            id: `${service.id}-labour`,
+            description: `Labour (${service.predictedHours.toFixed(2)}h)`,
+            quantity: service.predictedHours,
+            unitPrice: 250,
+            amount: parseFloat((service.predictedHours * 250).toFixed(2)),
+          },
+          ...((service.selectedTasks as any) as string[]).map((t: string, i: number) => ({
+            id: `${service.id}-task-${i}`,
+            description: t,
+            quantity: 1,
+            unitPrice: 0,
+            amount: 0,
+          })),
+        ],
         amount: parseFloat((service.predictedHours * 250).toFixed(2)),
       };
       await storage.addCompletedServiceRecord(completedRecord);
@@ -285,15 +302,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.removeActiveService(id);
 
       // Try to start the next queued service if a machine is available
-      const queued = (await storage.getActiveServices())
-        .filter(s => s.status === "Queued")
-        .sort((a, b) => (a.queuePosition || 0) - (b.queuePosition || 0));
+      const queued = (await storage.getActiveServices()).filter(s => s.status === "Queued");
+      const policy = await storage.getQueuePolicy();
+      const prioRank: Record<string, number> = { Urgent: 0, High: 1, Normal: 2, Low: 3 };
+      const sortedQueued = queued.sort((a, b) => {
+        if (policy === "SJF") {
+          return (a.predictedHours || 0) - (b.predictedHours || 0);
+        }
+        if (policy === "PRIORITY") {
+          const ar = prioRank[(a as any).priority || "Normal"] ?? 2;
+          const br = prioRank[(b as any).priority || "Normal"] ?? 2;
+          if (ar !== br) return ar - br;
+        }
+        return (a.queuePosition || 0) - (b.queuePosition || 0);
+      });
       if (queued.length > 0) {
         const machinesAfter = await storage.getMachines();
         const availableMachines = machinesAfter
           .filter(m => m.assignedWorkers.length < 3 && m.currentLoad < 90)
           .sort((a, b) => a.currentLoad - b.currentLoad);
-        const next = queued[0];
+        const next = sortedQueued[0];
         if (availableMachines.length > 0) {
           const start = new Date();
           const est = applyBusinessHours(start, next.predictedHours);
@@ -332,6 +360,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(records);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch completed services" });
+    }
+  });
+
+  // GET /api/completed-services/:id - Get a single completed service record
+  app.get("/api/completed-services/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const record = await storage.getCompletedService(id);
+      if (!record) return res.status(404).json({ error: "Record not found" });
+      res.json(record);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch record" });
+    }
+  });
+
+  // PUT /api/completed-services/:id - Update invoice items/currency/amount
+  app.put("/api/completed-services/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const record = await storage.getCompletedService(id);
+      if (!record) return res.status(404).json({ error: "Record not found" });
+
+      const updates = req.body || {};
+      const items = Array.isArray(updates.items) ? updates.items : record.items;
+      const normalizedItems = items.map((it: any, idx: number) => {
+        const description = String(it.description || `Item ${idx + 1}`);
+        const quantity = typeof it.quantity === 'number' && it.quantity >= 0 ? it.quantity : 1;
+        const unitPrice = typeof it.unitPrice === 'number' && it.unitPrice >= 0 ? it.unitPrice : 0;
+        const amount = parseFloat((quantity * unitPrice).toFixed(2));
+        return {
+          id: it.id || `${id}-item-${idx}`,
+          description,
+          quantity,
+          unitPrice,
+          amount,
+        };
+      });
+      const total = normalizedItems.reduce((sum: number, i: any) => sum + (i.amount || 0), 0);
+      const currency = typeof updates.currency === 'string' ? updates.currency : record.currency || 'INR';
+
+      const updated = await storage.updateCompletedServiceRecord(id, {
+        items: normalizedItems,
+        amount: parseFloat(total.toFixed(2)),
+        currency,
+      } as any);
+
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update record" });
     }
   });
 
@@ -506,7 +583,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const serviceId = `VOL_${dateStr}_${workerId}`;
 
       // Step 8: Calculate estimated completion
-      const estimatedCompletion = applyBusinessHours(now, predictedHours);
+      // If queued, include wait time equal to the minimum remaining time among active in-progress services
+      let displayPredictedHours = predictedHours;
+      let waitHours = 0;
+      if (queuePosition) {
+        const inProgress = activeServices.filter(s => s.status === "In Progress");
+        const nowMs = now.getTime();
+        const remainingHours = inProgress
+          .map(s => {
+            const est = (s as any).estimatedCompletion as Date;
+            const diffMs = Math.max(0, est.getTime() - nowMs);
+            return diffMs / (1000 * 60 * 60);
+          })
+          .filter(h => isFinite(h));
+        if (remainingHours.length > 0) {
+          waitHours = Math.min(...remainingHours);
+          displayPredictedHours = predictedHours + waitHours;
+        }
+      }
+      const estimatedCompletion = applyBusinessHours(now, predictedHours + waitHours);
 
       // Step 9: Create active service
       const activeService = await storage.createActiveService({
@@ -529,7 +624,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         progress: 0,
         assignedWorkers,
         assignedMachine,
+        reservedParts: Array.from(new Set(requiredParts)) as any,
         queuePosition,
+        priority: validatedData.priority as any,
         status: queuePosition ? "Queued" : "In Progress",
       });
 
@@ -556,7 +653,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Step 12: Return prediction result
       res.json({
         serviceId,
-        predictedHours: parseFloat(predictedHours.toFixed(2)),
+        predictedHours: parseFloat(displayPredictedHours.toFixed(2)),
         assignedWorkers: assignedWorkers.map(id => {
           const w = workers.find(worker => worker.id === id);
           return w ? w.name : id;
@@ -569,6 +666,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Service request error:", error);
       res.status(400).json({ error: error.message || "Invalid service request" });
+    }
+  });
+
+  // Queue policy endpoints
+  app.get("/api/queue-policy", async (_req, res) => {
+    try {
+      const policy = await storage.getQueuePolicy();
+      res.json({ policy });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch queue policy" });
+    }
+  });
+
+  app.put("/api/queue-policy", async (req, res) => {
+    try {
+      const p = String((req.body || {}).policy || "").toUpperCase();
+      const allowed = ["FIFO", "SJF", "PRIORITY"] as const;
+      if (!allowed.includes(p as any)) return res.status(400).json({ error: "Invalid policy" });
+      await storage.setQueuePolicy(p as any);
+      res.json({ policy: p });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update queue policy" });
     }
   });
 

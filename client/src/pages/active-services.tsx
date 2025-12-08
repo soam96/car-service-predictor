@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,9 +11,13 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { ActiveService, CompletedService } from "@shared/schema";
 import { motion, AnimatePresence } from "framer-motion";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 export default function ActiveServices() {
   const { toast } = useToast();
+  const [editing, setEditing] = useState<CompletedService | null>(null);
+  const [editItems, setEditItems] = useState<Array<{ description: string; quantity: number; unitPrice: number }>>([]);
   
   const { data: services, isLoading } = useQuery<ActiveService[]>({
     queryKey: ['/api/active-services'],
@@ -50,6 +55,20 @@ export default function ActiveServices() {
     },
   });
 
+  const updateInvoiceMutation = useMutation({
+    mutationFn: async (payload: { id: string; items: Array<{ description: string; quantity: number; unitPrice: number }>; currency?: string }) => {
+      return await apiRequest('PUT', `/api/completed-services/${payload.id}`, { items: payload.items, currency: payload.currency ?? 'INR' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/completed-services'] });
+      toast({ title: 'Invoice Updated', description: 'Invoice items have been saved.' });
+      setEditing(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Update Failed', description: error.message, variant: 'destructive' });
+    },
+  });
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'In Progress':
@@ -82,10 +101,26 @@ export default function ActiveServices() {
     return `${minutes}m`;
   };
 
+  const calculateQueuedStartEta = (list: ActiveService[], current: ActiveService) => {
+    const inProgress = list.filter(s => s.status === 'In Progress');
+    if (inProgress.length === 0) return 'Waiting';
+    const earliest = inProgress.reduce((min, s) => {
+      const t = new Date(s.estimatedCompletion as any).getTime();
+      return Math.min(min, t);
+    }, Infinity);
+    const now = Date.now();
+    const diff = earliest - now;
+    if (diff <= 0) return 'Starting soon';
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  };
+
   const initials = (name: string) => name.split(' ').map((n) => n[0]).join('').slice(0,2).toUpperCase();
 
   const downloadReceipt = (record: CompletedService) => {
     const dateStr = new Date(record.completedAt).toLocaleString();
+    const currencySymbol = record.currency === 'INR' ? '₹' : (record.currency || '$');
     const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
     <title>Receipt ${record.id}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -118,9 +153,15 @@ export default function ActiveServices() {
         <table>
           <thead><tr><th>Item</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
           <tbody>
-            <tr><td>Labour (${record.predictedHours.toFixed(2)}h)</td><td>1</td><td>$250.00</td><td>$${record.amount.toFixed(2)}</td></tr>
-            ${record.selectedTasks.map(t=>`<tr><td>${t}</td><td>1</td><td>$0.00</td><td>$0.00</td></tr>`).join('')}
-            <tr><td colspan="3" class="total">Total</td><td class="total">$${record.amount.toFixed(2)}</td></tr>
+            ${record.items.map(i => `
+              <tr>
+                <td>${i.description}</td>
+                <td>${typeof i.quantity === 'number' ? i.quantity.toFixed(2) : i.quantity}</td>
+                <td>${currencySymbol}${i.unitPrice.toFixed(2)}</td>
+                <td>${currencySymbol}${i.amount.toFixed(2)}</td>
+              </tr>
+            `).join('')}
+            <tr><td colspan="3" class="total">Total</td><td class="total">${currencySymbol}${record.amount.toFixed(2)}</td></tr>
           </tbody>
         </table>
         <div class="muted" style="margin-top:12px">Note: Parts priced separately if used.</div>
@@ -249,7 +290,9 @@ export default function ActiveServices() {
                         </motion.div>
                       </TableCell>
                       <TableCell data-testid={`text-time-remaining-${service.id}`}>
-                        {calculateTimeRemaining(service.estimatedCompletion, service.progress)}
+                        {service.status === 'Queued'
+                          ? `Starts in ${calculateQueuedStartEta(services, service)}`
+                          : calculateTimeRemaining(service.estimatedCompletion, service.progress)}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-2 max-w-[200px]">
@@ -364,7 +407,7 @@ export default function ActiveServices() {
                       </TableCell>
                       <TableCell>{rec.serviceType}</TableCell>
                       <TableCell>{rec.predictedHours.toFixed(2)}h</TableCell>
-                      <TableCell className="text-[#1A73E8]">${rec.amount.toFixed(2)}</TableCell>
+                      <TableCell className="text-[#1A73E8]">{rec.currency === 'INR' ? '₹' : (rec.currency || '$')}{rec.amount.toFixed(2)}</TableCell>
                       <TableCell>{new Date(rec.completedAt).toLocaleString()}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
@@ -372,6 +415,39 @@ export default function ActiveServices() {
                             <FileText className="h-4 w-4 mr-1" />
                             Download Receipt
                           </Button>
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button size="sm" variant="secondary" onClick={() => { setEditing(rec); setEditItems(rec.items.map(i => ({ description: i.description, quantity: i.quantity, unitPrice: i.unitPrice }))); }}>Edit Invoice</Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Edit Invoice</DialogTitle>
+                              </DialogHeader>
+                              <div className="space-y-3">
+                                {editItems.map((item, idx) => (
+                                  <div key={idx} className="grid grid-cols-4 gap-2 items-center">
+                                    <Input value={item.description} onChange={(e) => {
+                                      const v = e.target.value; const next = [...editItems]; next[idx].description = v; setEditItems(next);
+                                    }} placeholder="Description" />
+                                    <Input type="number" value={item.quantity} onChange={(e) => {
+                                      const v = parseFloat(e.target.value || '0'); const next = [...editItems]; next[idx].quantity = isNaN(v) ? 0 : v; setEditItems(next);
+                                    }} placeholder="Qty" />
+                                    <Input type="number" value={item.unitPrice} onChange={(e) => {
+                                      const v = parseFloat(e.target.value || '0'); const next = [...editItems]; next[idx].unitPrice = isNaN(v) ? 0 : v; setEditItems(next);
+                                    }} placeholder="Rate" />
+                                    <Button variant="ghost" onClick={() => { const next = editItems.filter((_, i) => i !== idx); setEditItems(next); }}>Delete</Button>
+                                  </div>
+                                ))}
+                                <div className="flex gap-2">
+                                  <Button variant="outline" onClick={() => setEditItems([...editItems, { description: 'New Item', quantity: 1, unitPrice: 0 }])}>Add Item</Button>
+                                  <div className="ml-auto font-medium">Total: ₹{editItems.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0).toFixed(2)}</div>
+                                </div>
+                              </div>
+                              <DialogFooter>
+                                <Button onClick={() => updateInvoiceMutation.mutate({ id: rec.id, items: editItems, currency: 'INR' })} disabled={updateInvoiceMutation.isPending}>Save</Button>
+                              </DialogFooter>
+                            </DialogContent>
+                          </Dialog>
                         </div>
                       </TableCell>
                     </TableRow>

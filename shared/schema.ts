@@ -82,7 +82,9 @@ export const activeServices = pgTable("active_services", {
   progress: integer("progress").notNull().default(0), // 0-100
   assignedWorkers: text("assigned_workers").array().notNull(),
   assignedMachine: text("assigned_machine").notNull(),
+  reservedParts: text("reserved_parts").array().notNull().default(sql`ARRAY[]::text[]`),
   queuePosition: integer("queue_position"),
+  priority: text("priority").notNull().default('Normal'),
   status: text("status").notNull().default('In Progress'), // Queued, In Progress, Completing, Completed
 });
 
@@ -117,6 +119,7 @@ export const serviceRequestSchema = z.object({
   customerApprovalSpeed: z.enum(["Fast", "Normal", "Slow"]).default("Normal"),
   weather: z.enum(["Clear", "Rain", "Extreme"]).default("Clear"),
   peakHours: z.boolean().default(false),
+  priority: z.enum(["Low", "Normal", "High", "Urgent"]).default("Normal"),
 });
 
 export type ServiceRequest = z.infer<typeof serviceRequestSchema>;
@@ -133,6 +136,14 @@ export const analyticsSchema = z.object({
 export type Analytics = z.infer<typeof analyticsSchema>;
 
 // Completed Service Record (for receipts and history)
+export type InvoiceItem = {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+};
+
 export type CompletedService = {
   id: string;
   carNumber: string;
@@ -141,7 +152,9 @@ export type CompletedService = {
   selectedTasks: string[];
   predictedHours: number;
   assignedMachine: string;
-  assignedWorkers: string[]; // worker names
-  completedAt: string; // ISO string
-  amount: number; // simple billing amount aligned with analytics revenue calc
+  assignedWorkers: string[];
+  completedAt: string;
+  currency: string;
+  items: InvoiceItem[];
+  amount: number;
 };
